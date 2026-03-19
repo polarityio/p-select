@@ -27,7 +27,8 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "prepublishOnly": "npm run build",
-    "prepare": "husky"
+    "prepare": "husky",
+    "coverage": "vitest run --coverage"
   },
   "engines": {
     "node": ">=24.0.0"
