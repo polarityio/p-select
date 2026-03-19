@@ -1,6 +1,7 @@
 import { LitElement, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { classMap } from 'lit/directives/class-map.js';
+import { repeat } from 'lit/directives/repeat.js';
 import { computePosition, flip, shift, size } from '@floating-ui/dom';
 import { baseStyles } from './styles/base.js';
 import type {
@@ -112,6 +113,7 @@ export class PSelect<T = unknown> extends LitElement {
   private _searchCounter = 0;
   private _typeAheadBuffer = '';
   private _typeAheadTimeout?: ReturnType<typeof setTimeout>;
+  private _searchDebounceTimer?: ReturnType<typeof setTimeout>;
   private _resizeObserver?: ResizeObserver;
 
   // ── Lifecycle ──
@@ -303,6 +305,10 @@ export class PSelect<T = unknown> extends LitElement {
 
   // ── Search / Filter ──
 
+  /** Debounce delay for synchronous search filtering (ms). */
+  @property({ type: Number, attribute: 'search-debounce' })
+  searchDebounce = 150;
+
   private _onSearchInput(e: Event) {
     const input = e.target as HTMLInputElement;
     this._searchText = input.value;
@@ -310,7 +316,14 @@ export class PSelect<T = unknown> extends LitElement {
     if (this.search) {
       this._doAsyncSearch(this._searchText);
     } else {
-      this._filterSync(this._searchText);
+      clearTimeout(this._searchDebounceTimer);
+      if (this.searchDebounce <= 0) {
+        this._filterSync(this._searchText);
+      } else {
+        this._searchDebounceTimer = setTimeout(() => {
+          this._filterSync(this._searchText);
+        }, this.searchDebounce);
+      }
     }
   }
 
@@ -407,9 +420,12 @@ export class PSelect<T = unknown> extends LitElement {
       case 'End':
         e.preventDefault();
         if (this._isOpen) {
-          this._highlighted = [...this._activeOptions]
-            .reverse()
-            .find((o) => !isOptionDisabled(o));
+          for (let i = this._activeOptions.length - 1; i >= 0; i--) {
+            if (!isOptionDisabled(this._activeOptions[i])) {
+              this._highlighted = this._activeOptions[i];
+              break;
+            }
+          }
           this._scrollToHighlighted();
         }
         break;
@@ -572,6 +588,11 @@ export class PSelect<T = unknown> extends LitElement {
     this._resizeObserver?.disconnect();
     this._resizeObserver = undefined;
     clearTimeout(this._typeAheadTimeout);
+    clearTimeout(this._searchDebounceTimer);
+    if (this._scrollRAF) {
+      cancelAnimationFrame(this._scrollRAF);
+      this._scrollRAF = undefined;
+    }
   }
 
   // ── Event Handlers ──
@@ -606,14 +627,22 @@ export class PSelect<T = unknown> extends LitElement {
     }
   }
 
+  private _scrollRAF?: number;
+
   private _scrollToHighlighted() {
     if (!this._highlighted) return;
-    this.updateComplete.then(() => {
-      const idx = this._activeOptions.indexOf(this._highlighted!);
-      const optionEl = this.shadowRoot?.querySelector(
-        `[data-option-index="${idx}"]`,
-      );
-      optionEl?.scrollIntoView({ block: 'nearest' });
+    if (this._scrollRAF) {
+      cancelAnimationFrame(this._scrollRAF);
+    }
+    this._scrollRAF = requestAnimationFrame(() => {
+      this._scrollRAF = undefined;
+      this.updateComplete.then(() => {
+        const idx = this._activeOptions.indexOf(this._highlighted!);
+        const optionEl = this.shadowRoot?.querySelector(
+          `[data-option-index="${idx}"]`,
+        );
+        optionEl?.scrollIntoView({ block: 'nearest' });
+      });
     });
   }
 
@@ -804,40 +833,60 @@ export class PSelect<T = unknown> extends LitElement {
       `;
     }
 
+    // Build a Set for O(1) selected lookups in multiple mode
+    const selectedSet: Set<unknown> = new Set();
+    if (Array.isArray(this.selected)) {
+      for (const s of this.selected) {
+        selectedSet.add(s instanceof Date ? s.getTime() : s);
+      }
+    }
+    const isOptionSelected = (option: T): boolean => {
+      if (selectedSet.size > 0) {
+        const key =
+          option instanceof Date ? (option as Date).getTime() : option;
+        return selectedSet.has(key);
+      }
+      return isSelected(option, this.selected);
+    };
+
     // Options list
     return html`
       <ul class="options" part="options-list" role="listbox" id="listbox">
-        ${this._activeOptions.map((option, index) => {
-          const optDisabled = isOptionDisabled(option);
-          const optSelected = isSelected(option, this.selected);
-          const optHighlighted = option === this._highlighted;
-          const classes = {
-            option: true,
-            'option--highlighted': optHighlighted,
-            'option--selected': optSelected,
-            'option--disabled': optDisabled,
-          };
-          return html`
-            <li
-              class=${classMap(classes)}
-              part="option ${optHighlighted
-                ? 'option-highlighted'
-                : ''} ${optSelected ? 'option-selected' : ''} ${optDisabled
-                ? 'option-disabled'
-                : ''}"
-              role="option"
-              aria-selected=${optSelected}
-              aria-current=${optHighlighted}
-              aria-disabled=${optDisabled}
-              data-option-index=${index}
-              id="option-${index}"
-              @mouseup=${(e: MouseEvent) => this._onOptionMouseup(option, e)}
-              @mouseover=${() => this._onOptionMouseover(option)}
-            >
-              ${this._renderOption(option)}
-            </li>
-          `;
-        })}
+        ${repeat(
+          this._activeOptions,
+          (option) => option,
+          (option, index) => {
+            const optDisabled = isOptionDisabled(option);
+            const optSelected = isOptionSelected(option);
+            const optHighlighted = option === this._highlighted;
+            const classes = {
+              option: true,
+              'option--highlighted': optHighlighted,
+              'option--selected': optSelected,
+              'option--disabled': optDisabled,
+            };
+            return html`
+              <li
+                class=${classMap(classes)}
+                part="option ${optHighlighted
+                  ? 'option-highlighted'
+                  : ''} ${optSelected ? 'option-selected' : ''} ${optDisabled
+                  ? 'option-disabled'
+                  : ''}"
+                role="option"
+                aria-selected=${optSelected}
+                aria-current=${optHighlighted}
+                aria-disabled=${optDisabled}
+                data-option-index=${index}
+                id="option-${index}"
+                @mouseup=${(e: MouseEvent) => this._onOptionMouseup(option, e)}
+                @mouseover=${() => this._onOptionMouseover(option)}
+              >
+                ${this._renderOption(option)}
+              </li>
+            `;
+          },
+        )}
       </ul>
     `;
   }

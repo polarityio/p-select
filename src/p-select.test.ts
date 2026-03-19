@@ -279,7 +279,11 @@ describe('PSelect', () => {
   describe('search', () => {
     it('filters options by search text', async () => {
       const el = await fixture(html`
-        <p-select .options=${STRING_OPTIONS} search-enabled></p-select>
+        <p-select
+          .options=${STRING_OPTIONS}
+          search-enabled
+          search-debounce="0"
+        ></p-select>
       `);
       await click(trigger(el));
       await el.updateComplete;
@@ -302,6 +306,7 @@ describe('PSelect', () => {
           label-field="name"
           search-field="role"
           search-enabled
+          search-debounce="0"
         ></p-select>
       `);
       await click(trigger(el));
@@ -320,6 +325,7 @@ describe('PSelect', () => {
         <p-select
           .options=${STRING_OPTIONS}
           search-enabled
+          search-debounce="0"
           no-matches-message="Nothing here"
         ></p-select>
       `);
@@ -335,7 +341,11 @@ describe('PSelect', () => {
     it('is diacritics-insensitive', async () => {
       const accented = ['Café', 'Naïve', 'Résumé'];
       const el = await fixture(html`
-        <p-select .options=${accented} search-enabled></p-select>
+        <p-select
+          .options=${accented}
+          search-enabled
+          search-debounce="0"
+        ></p-select>
       `);
       await click(trigger(el));
       await el.updateComplete;
@@ -353,6 +363,7 @@ describe('PSelect', () => {
         <p-select
           .options=${STRING_OPTIONS}
           search-enabled
+          search-debounce="0"
           @p-search=${searchSpy}
         ></p-select>
       `);

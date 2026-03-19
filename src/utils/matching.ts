@@ -15,9 +15,13 @@ export function stripDiacritics(text: string): string {
  * Default matcher: case-insensitive, diacritics-stripped substring match.
  * Returns the index of the match, or -1 if no match.
  */
-export function defaultMatcher(option: unknown, term: string): number {
+export function defaultMatcher(
+  option: unknown,
+  term: string,
+  _normalizedTerm?: string,
+): number {
   const text = stripDiacritics(String(option)).toLowerCase();
-  const needle = stripDiacritics(term).toLowerCase();
+  const needle = _normalizedTerm ?? stripDiacritics(term).toLowerCase();
   return text.indexOf(needle);
 }
 
@@ -25,9 +29,13 @@ export function defaultMatcher(option: unknown, term: string): number {
  * Default type-ahead matcher: case-insensitive startsWith check.
  * Returns 0 if the option starts with the term, -1 otherwise.
  */
-export function defaultTypeAheadMatcher(option: unknown, term: string): number {
+export function defaultTypeAheadMatcher(
+  option: unknown,
+  term: string,
+  _normalizedTerm?: string,
+): number {
   const text = stripDiacritics(String(option)).toLowerCase();
-  const needle = stripDiacritics(term).toLowerCase();
+  const needle = _normalizedTerm ?? stripDiacritics(term).toLowerCase();
   return text.startsWith(needle) ? 0 : -1;
 }
 
@@ -78,11 +86,24 @@ export function filterOptions<T>(
 ): T[] {
   if (!term) return [...options];
 
+  // Pre-compute normalized term once for built-in matchers
+  const isBuiltInMatcher =
+    matcher === (defaultMatcher as unknown) ||
+    matcher === (defaultTypeAheadMatcher as unknown);
+  const normalizedTerm = isBuiltInMatcher
+    ? stripDiacritics(term).toLowerCase()
+    : undefined;
+
   return options.filter((option) => {
     if (skipDisabled && isOptionDisabled(option)) return false;
     const text = getSearchText(option, searchField, labelField);
-    // Use the matcher with the searchable text, not the raw option
-    return (matcher as MatcherFn<unknown>)(text, term) >= 0;
+    return normalizedTerm !== undefined
+      ? (matcher as unknown as typeof defaultMatcher)(
+          text,
+          term,
+          normalizedTerm,
+        ) >= 0
+      : (matcher as MatcherFn<unknown>)(text, term) >= 0;
   });
 }
 
@@ -121,9 +142,21 @@ export function findOptionWithOffset<T>(
   searchField: string | undefined,
   labelField: string | undefined,
   current: T | undefined,
-  matcher: (option: unknown, term: string) => number = defaultTypeAheadMatcher,
+  matcher: (
+    option: unknown,
+    term: string,
+    normalizedTerm?: string,
+  ) => number = defaultTypeAheadMatcher,
 ): T | undefined {
   if (!text || options.length === 0) return undefined;
+
+  // Pre-compute normalized term once for built-in matchers
+  const isBuiltInMatcher =
+    matcher === (defaultMatcher as unknown) ||
+    matcher === (defaultTypeAheadMatcher as unknown);
+  const normalizedTerm = isBuiltInMatcher
+    ? stripDiacritics(text).toLowerCase()
+    : undefined;
 
   const startIndex = current != null ? options.indexOf(current) + 1 : 0;
   const len = options.length;
@@ -133,7 +166,7 @@ export function findOptionWithOffset<T>(
     const option = options[idx];
     if (isOptionDisabled(option)) continue;
     const searchText = getSearchText(option, searchField, labelField);
-    if (matcher(searchText, text) >= 0) {
+    if (matcher(searchText, text, normalizedTerm) >= 0) {
       return option;
     }
   }
