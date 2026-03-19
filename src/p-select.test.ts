@@ -785,4 +785,298 @@ describe('PSelect', () => {
       expect(em?.textContent).toBe('Alice - Admin');
     });
   });
+
+  // ── Type-Ahead ──
+
+  describe('type-ahead', () => {
+    it('selects matching option when typing while closed', async () => {
+      const changeSpy = vi.fn();
+      const el = await fixture(html`
+        <p-select .options=${STRING_OPTIONS} @p-change=${changeSpy}></p-select>
+      `);
+
+      await keydown(trigger(el), 'g');
+      await el.updateComplete;
+
+      expect(changeSpy).toHaveBeenCalledTimes(1);
+      expect(changeSpy.mock.calls[0][0].detail.selected).toBe('Gamma');
+    });
+
+    it('accumulates characters for multi-char type-ahead', async () => {
+      const changeSpy = vi.fn();
+      const el = await fixture(html`
+        <p-select
+          .options=${['Delta', 'Dog', 'Donkey']}
+          @p-change=${changeSpy}
+        ></p-select>
+      `);
+
+      await keydown(trigger(el), 'd');
+      await keydown(trigger(el), 'o');
+      await el.updateComplete;
+
+      const lastCall = changeSpy.mock.calls[changeSpy.mock.calls.length - 1];
+      expect(lastCall[0].detail.selected).toBe('Dog');
+    });
+
+    it('does not type-ahead when dropdown is open', async () => {
+      const changeSpy = vi.fn();
+      const el = await fixture(html`
+        <p-select .options=${STRING_OPTIONS} @p-change=${changeSpy}></p-select>
+      `);
+
+      await click(trigger(el));
+      await el.updateComplete;
+
+      await keydown(trigger(el), 'g');
+      await el.updateComplete;
+
+      expect(changeSpy).not.toHaveBeenCalled();
+    });
+
+    it('ignores Ctrl/Meta key combos', async () => {
+      const changeSpy = vi.fn();
+      const el = await fixture(html`
+        <p-select .options=${STRING_OPTIONS} @p-change=${changeSpy}></p-select>
+      `);
+
+      trigger(el).dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'a',
+          ctrlKey: true,
+          bubbles: true,
+          composed: true,
+        }),
+      );
+      await el.updateComplete;
+
+      expect(changeSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Additional Keyboard Navigation ──
+
+  describe('additional keyboard navigation', () => {
+    it('opens on ArrowUp', async () => {
+      const el = await fixture(html`
+        <p-select .options=${STRING_OPTIONS}></p-select>
+      `);
+      await keydown(trigger(el), 'ArrowUp');
+      await el.updateComplete;
+
+      expect(dropdown(el).hidden).toBe(false);
+    });
+
+    it('navigates backward with ArrowUp', async () => {
+      const el = await fixture(html`
+        <p-select .options=${STRING_OPTIONS}></p-select>
+      `);
+      await click(trigger(el));
+      await el.updateComplete;
+
+      // Start at Alpha, go down to Beta, then back up to Alpha
+      await keydown(trigger(el), 'ArrowDown');
+      await el.updateComplete;
+      await keydown(trigger(el), 'ArrowUp');
+      await el.updateComplete;
+
+      const highlighted = el.shadowRoot!.querySelector('.option--highlighted');
+      expect(highlighted?.textContent).toContain('Alpha');
+    });
+
+    it('closes on Tab when open', async () => {
+      const el = await fixture(html`
+        <p-select .options=${STRING_OPTIONS}></p-select>
+      `);
+      await click(trigger(el));
+      await el.updateComplete;
+      expect(dropdown(el).hidden).toBe(false);
+
+      await keydown(trigger(el), 'Tab');
+      await el.updateComplete;
+      expect(dropdown(el).hidden).toBe(true);
+    });
+
+    it('opens with Space key when closed', async () => {
+      const el = await fixture(html`
+        <p-select .options=${STRING_OPTIONS}></p-select>
+      `);
+
+      await keydown(trigger(el), ' ');
+      await el.updateComplete;
+
+      expect(dropdown(el).hidden).toBe(false);
+    });
+
+    it('removes last tag with Backspace in multiple mode', async () => {
+      const changeSpy = vi.fn();
+      const el = await fixture(html`
+        <p-select
+          .options=${STRING_OPTIONS}
+          .selected=${['Alpha', 'Beta']}
+          multiple
+          search-enabled
+          @p-change=${changeSpy}
+        ></p-select>
+      `);
+
+      const input = triggerSearchInput(el)!;
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await el.updateComplete;
+
+      await keydown(input, 'Backspace');
+      await el.updateComplete;
+
+      expect(changeSpy).toHaveBeenCalledTimes(1);
+      expect(changeSpy.mock.calls[0][0].detail.selected).toEqual(['Alpha']);
+    });
+
+    it('does not remove tag with Backspace when search text exists', async () => {
+      const changeSpy = vi.fn();
+      const el = await fixture(html`
+        <p-select
+          .options=${STRING_OPTIONS}
+          .selected=${['Alpha', 'Beta']}
+          multiple
+          search-enabled
+          search-debounce="0"
+          @p-change=${changeSpy}
+        ></p-select>
+      `);
+
+      const input = triggerSearchInput(el)!;
+      await type(input, 'something');
+      await el.updateComplete;
+
+      await keydown(input, 'Backspace');
+      await el.updateComplete;
+
+      expect(changeSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Deselection in Multiple Mode ──
+
+  describe('deselection in multiple mode', () => {
+    it('deselects an already-selected option on click', async () => {
+      const changeSpy = vi.fn();
+      const el = await fixture(html`
+        <p-select
+          .options=${STRING_OPTIONS}
+          .selected=${['Alpha', 'Beta']}
+          multiple
+          @p-change=${changeSpy}
+        ></p-select>
+      `);
+
+      await click(trigger(el));
+      await el.updateComplete;
+
+      // Click 'Alpha' which is already selected to deselect it
+      const opts = options(el);
+      const alphaOpt = opts.find((o) => o.textContent?.includes('Alpha'))!;
+      alphaOpt.dispatchEvent(
+        new MouseEvent('mouseup', { bubbles: true, composed: true }),
+      );
+      await el.updateComplete;
+
+      expect(changeSpy).toHaveBeenCalledTimes(1);
+      expect(changeSpy.mock.calls[0][0].detail.selected).toEqual(['Beta']);
+    });
+  });
+
+  // ── Async Search Error Handling ──
+
+  describe('async search error handling', () => {
+    it('recovers from a rejected search promise', async () => {
+      const searchFn = vi.fn().mockRejectedValue(new Error('Network error'));
+      const el = await fixture(html`
+        <p-select .options=${[]} .search=${searchFn} search-enabled></p-select>
+      `);
+      await click(trigger(el));
+      await el.updateComplete;
+
+      await type(searchInput(el)!, 'test');
+      await new Promise((r) => setTimeout(r, 20));
+      await el.updateComplete;
+
+      expect(el.loading).toBe(false);
+      const opts = options(el);
+      expect(opts.length).toBe(0);
+    });
+  });
+
+  // ── Hover Highlighting ──
+
+  describe('hover highlighting', () => {
+    it('highlights option on mouseover when highlightOnHover is true', async () => {
+      const el = await fixture(html`
+        <p-select .options=${STRING_OPTIONS} highlight-on-hover></p-select>
+      `);
+      await click(trigger(el));
+      await el.updateComplete;
+
+      const opts = options(el);
+      opts[2].dispatchEvent(
+        new MouseEvent('mouseover', { bubbles: true, composed: true }),
+      );
+      await el.updateComplete;
+
+      expect(opts[2].classList.contains('option--highlighted')).toBe(true);
+    });
+
+    it('does not highlight disabled option on hover', async () => {
+      const el = await fixture(html`
+        <p-select
+          .options=${OBJECT_OPTIONS}
+          label-field="name"
+          highlight-on-hover
+        ></p-select>
+      `);
+      await click(trigger(el));
+      await el.updateComplete;
+
+      const opts = options(el);
+      // Diana (index 3) is disabled
+      opts[3].dispatchEvent(
+        new MouseEvent('mouseover', { bubbles: true, composed: true }),
+      );
+      await el.updateComplete;
+
+      expect(opts[3].classList.contains('option--highlighted')).toBe(false);
+    });
+  });
+
+  // ── Options Update with Active Search ──
+
+  describe('options update with active search', () => {
+    it('re-filters when options change while search text exists', async () => {
+      const el = await fixture(html`
+        <p-select
+          .options=${STRING_OPTIONS}
+          search-enabled
+          search-debounce="0"
+        ></p-select>
+      `);
+      await click(trigger(el));
+      await el.updateComplete;
+
+      await type(searchInput(el)!, 'al');
+      await el.updateComplete;
+      expect(options(el).length).toBe(1);
+
+      // Update options with new data that also matches
+      el.options = ['Alpha', 'Alkaline', 'Beta', 'Gamma'];
+      await el.updateComplete;
+      // Need an extra tick for the debounced re-filter to apply
+      await new Promise((r) => setTimeout(r, 10));
+      await el.updateComplete;
+
+      const opts = options(el);
+      expect(opts.length).toBe(2);
+      expect(opts[0].textContent).toContain('Alpha');
+      expect(opts[1].textContent).toContain('Alkaline');
+    });
+  });
 });
