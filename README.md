@@ -1,5 +1,7 @@
 # p-select
 
+[![CI](https://github.com/polarityio/p-select/actions/workflows/ci.yml/badge.svg)](https://github.com/polarityio/p-select/actions/workflows/ci.yml)
+
 A select web component built with [Lit](https://lit.dev). The `p-select` web component is inspired by the excellent   [ember-power-select](https://github.com/cibernox/ember-power-select) component written for the [Ember.js](https://emberjs.com/) web application framework.
 
 ## Installation
